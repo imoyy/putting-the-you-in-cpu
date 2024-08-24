@@ -30,7 +30,7 @@ export default defineConfig({
 		smartypants: true,
 		rehypePlugins: [ rehypeExternalLinksConfig ],
 		shikiConfig: {
-			theme: 'github-dark'
+			theme: 'one-dark-pro'
 		}
 	}
 })
