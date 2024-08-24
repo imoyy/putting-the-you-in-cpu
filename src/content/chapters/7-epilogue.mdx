@@ -6,48 +6,49 @@ slug: epilogue
 updatedAt: 2023-07-18T18:59:25.355Z
 ---
 
-Congratulations! We have now firmly placed the "you" in CPU. I hope you had fun.
+恭喜！我们现在已经将“你”牢牢地放在了 CPU 中。我希望你玩得开心。
 
-I will send you off by emphasizing once more that all the knowledge you just gained is real and active. The next time you think about how your computer is running multiple apps, I hope you envision timer chips and hardware interrupts. When you write a program in some fancy programming language and get a linker error, I hope you think about what that linker is trying to do.
+最后我要再次强调，你刚刚获得的所有知识都是真实有效的。下次当你思考你的计算机是如何运行多个应用程序时，我希望你能想象定时器芯片和硬件中断。当你用某种高级编程语言编写程序并遇到链接器错误时，我希望你能想想那个链接器正在尝试做什么。
 
-If you have any questions (or corrections) about anything contained in this article, you should email me at [lexi@hackclub.com](mailto:lexi@hackclub.com) or submit an issue or PR [on GitHub](https://github.com/hackclub/putting-the-you-in-cpu/).
+如果你对本文中的任何内容有任何疑问（或更正），你应该给我发送电子邮件至 [lexi@hackclub.com](mailto:lexi@hackclub.com) 或在 [GitHub](https://github.com/hackclub/putting-the-you-in-cpu/) 上提交问题或 PR。
 
 <img src='/images/the-end.png' loading='eager' alt='The end.' width='1367' height='331' style='max-width: 600px; margin: 30px auto; margin-bottom: 150px;' />
 
-... but wait, there's more!
+……但是等等，还有更多！
 
-## Bonus: Translating C Concepts
+## 额外内容：翻译 C 概念
 
-If you've done some low-level programming yourself, you probably know what the stack and the heap are and you've probably used `malloc`. You might not have thought a lot about how they're implemented!
+如果你自己做过一些底层编程，你可能知道堆栈和堆是什么，并且你可能使用过 `malloc`。你可能没有过多地考虑过它们是如何实现的！
 
-First of all, a thread's stack is a fixed amount of memory that's mapped to somewhere high up in virtual memory. On most (although [not all](https://stackoverflow.com/a/664779)) architectures, the stack pointer starts at the top of the stack memory and moves downward as it increments. Physical memory is not allocated up-front for the entire mapped stack space; instead, demand paging is used to lazily allocate memory as frames of the stack are reached.
+首先，线程的堆栈是固定数量的内存，映射到虚拟内存中的某个高处。在大多数（尽管 [并非所有](https://stackoverflow.com/a/664779)）架构中，堆栈指针从堆栈内存的顶部开始，并在递增时向下移动。不会为整个映射的堆栈空间预先分配物理内存；相反，按需分页用于在到达堆栈帧时延迟分配内存。
 
-It might be surprising to hear that heap allocation functions like `malloc` are not system calls. Instead, heap memory management is provided by the libc implementation! `malloc`, `free`, et al. are complex procedures, and the libc keeps track of memory mapping details itself. Under the hood, the userland heap allocator uses syscalls including `mmap` (which can map more than just files) and `sbrk`.
+听到像 `malloc` 这样的堆分配函数不是系统调用可能会让你感到惊讶。相反，堆内存管理是由 libc 实现提供的！`malloc`、`free` 等是复杂的过程，libc 本身会跟踪内存映射细节。在底层，用户空间堆分配器使用包括 `mmap`（它可以映射的不仅仅是文件）和 `sbrk` 在内的系统调用。
 
-## Bonus: Tidbits
+## 额外内容：花絮
 
-I couldn't find anywhere coherent to put these, but found them amusing, so here you go.
+我找不到任何连贯的地方来放置这些，但发现它们很有趣，所以给你。
 
-> *Most Linux users probably have a sufficiently interesting life that they spend little time imagining how page tables are represented in the kernel.*
+> *大多数 Linux 用户可能过着足够有趣的生活，以至于他们很少花时间去想象页表在内核中是如何表示的。*
 > 
 > *<cite>[Jonathan Corbet, LWN](https://lwn.net/Articles/106177/)</cite>*
 
-An alternate visualization of hardware interrupts:
+硬件中断的另一种可视化：
 
 <img src='/images/hardware-interrupt-meme.png' loading='lazy' style='max-width: 350px;' alt='A 4-panel meme comic depicting a small bird on a branch, with speech bubbles containing assembly instructions. In the second panel, another speech bubble appears from out of frame, shouting "hello it&apos;s me the keyboard!" In the third panel, the source of the shouting is visible as a large crow in frame, now shouting "I have an important message!" In the final frame, a close up on the small bird looking unamused. Another speech bubble from the crow out of frame bears simply the letter E.' width='600' height='625' />
 
-A note that some system calls use a technique called vDSOs instead of jumping into kernel space. I didn't have time to talk about this, but it's quite interesting and I recommend [reading](https://en.wikipedia.org/wiki/VDSO) [into](https://man7.org/linux/man-pages/man7/vdso.7.html) [it](https://0xax.gitbooks.io/linux-insides/content/SysCall/linux-syscall-3.html).
+请注意，某些系统调用使用一种称为 vDSO 的技术，而不是跳转到内核空间。我没有时间谈论这个，但它很有趣，我建议 [阅读](https://en.wikipedia.org/wiki/VDSO) [了解](https://man7.org/linux/man-pages/man7/vdso.7.html) [它](https://0xax.gitbooks.io/linux-insides/content/SysCall/linux-syscall-3.html)。
 
-And finally, addressing the Unix allegations: I do feel bad that a lot of the execution-specific stuff is very Unix-specific. If you're a macOS or Linux user this is fine, but it won't bring you too much closer to how Windows executes programs or handles system calls, although the CPU architecture stuff is all the same. In the future I would love to write an article that covers the Windows world.
+最后，解决 Unix 的指控：我确实感到难过的是，很多特定于执行的内容都是特定于 Unix 的。如果你是 macOS 或 Linux 用户，这很好，但它不会让你更接近 Windows 如何执行程序或处理系统调用，尽管 CPU 架构的东西都是一样的。将来我很想写一篇涵盖 Windows 世界的文章。
 
-## Acknowledgements
+## 致谢
 
-I talked to GPT-3.5 and GPT-4 a decent amount while writing this article. While they lied to me a lot and most of the information was useless, they were sometimes very helpful for working through problems. LLM assistance can be net positive if you're aware of their limitations and are extremely skeptical of everything they say. That said, they're terrible at writing. Don't let them write for you.
+在撰写本文时，我与 GPT-3.5 和 GPT-4 进行了大量的交谈。虽然他们对我撒了很多谎，而且大部分信息都没有用，但他们有时对解决问题很有帮助。如果你了解它们的局限性并且对它们所说的一切都持极度怀疑的态度，那么 LLM 协助可能会带来积极的影响。也就是说，他们不擅长写作。不要让他们替你写。
 
-More importantly, thank you to all the humans who proofread me, encouraged me, and helped me brainstorm — especially Ani, B, Ben, Caleb, Kara, polypixeldev, Pradyun, Spencer, Nicky (who drew the wonderful elf in [chapter 4](/becoming-an-elf-lord)), and my lovely parents.
+更重要的是，感谢所有校对、鼓励我并帮助我集思广益的人——尤其是 Ani、B、Ben、Caleb、Kara、polypixeldev、Pradyun、Spencer、Nicky（他在 [第 4 章](/becoming-an-elf-lord) 中画了很棒的精灵）和我可爱的父母。
 
-If you are a teenager and you like computers and you are not already in the [Hack Club Slack](https://hackclub.com/slack), you should join right now. I would not have written this article if I didn't have a community of awesome people to share my thoughts and progress with. If you are not a teenager, you should [give us money](https://hackclub.com/philanthropy/) so we can keep doing cool things.
+如果你是一个青少年，你喜欢计算机，并且你还没有加入 [Hack Club Slack](https://hackclub.com/slack)，你应该立即加入。如果我没有一群很棒的人可以分享我的想法和进步，我就不会写这篇文章。如果你不是青少年，你应该 [给我们钱](https://hackclub.com/philanthropy/)，这样我们才能继续做很酷的事情。
 
-All of the mediocre art in this article was drawn in [Figma](https://figma.com/). I used [Obsidian](https://obsidian.md/) for editing, and sometimes [Vale](https://vale.sh/) for linting. The Markdown source for this article is [available on GitHub](https://github.com/hackclub/putting-the-you-in-cpu/) and open to future nitpicks, and all art is published on a [Figma community page](https://www.figma.com/community/file/1260699047973407903).
+本文中所有平庸的艺术作品都是在 [Figma](https://figma.com/) 中绘制的。我使用 [Obsidian](https://obsidian.md/) 进行编辑，有时使用 [Vale](https://vale.sh/) 进行 linting。本文的 Markdown 源代码 [可在 GitHub 上获得](https://github.com/hackclub/putting-the-you-in-cpu/) 并对未来的挑剔持开放态度，所有艺术作品都发布在 [Figma 社区页面](https://www.figma.com/community/file/1260699047973407903) 上。
 
 <img src='/images/cpu-pleading-face.png' loading='lazy' alt='A CPU with an adorable pleading face.' width='280' height='280' style='max-width: 120px; margin: 0 auto;' />
+

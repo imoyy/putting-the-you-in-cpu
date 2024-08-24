@@ -8,82 +8,82 @@ updatedAt: 2023-07-17T17:16:18.079Z
 
 import CodeBlock from '../../components/CodeBlock.astro'
 
-The final question: how did we get here? Where do the first processes come from?
+最后一个问题：我们是怎么来到这里的？第一个进程是从哪里来的？
 
-This article is almost done. We're on the final stretch. About to hit a home run. Moving on to greener pastures. And various other terrible idioms that mean you are a single *Length of Chapter 6* away from touching grass or whatever you do with your time when you aren't reading 15,000 word articles about CPU architecture.
+这篇文章快结束了。我们正处于最后阶段。即将打出本垒打。走向更绿的牧场。还有各种其他可怕的习语，意思是距离你接触草地或你在不阅读 15,000 字的 CPU 架构文章时所做的任何事情只有一个*第 6 章的长度*。
 
-If `execve` starts a new program by replacing the current process, how do you start a new program separately, in a new process? This is a pretty important ability if you want to do multiple things on your computer; when you double-click an app to start it, the app opens separately while the program you were previously on continues running.
+如果 `execve` 通过替换当前进程来启动新程序，那么如何在一个新进程中单独启动新程序？如果你想在你的计算机上做多件事情，这是一个非常重要的能力；当你双击一个应用程序来启动它时，该应用程序会单独打开，而你之前运行的程序会继续运行。
 
-The answer is another system call: `fork`, the system call fundamental to all multiprocessing. `fork` is quite simple, actually — it clones the current process and its memory, leaving the saved instruction pointer exactly where it is, and then allows both processes to proceed as usual. Without intervention, the programs continue to run independently from each other and all computation is doubled.
+答案是另一个系统调用：`fork`，它是所有多处理的基础系统调用。`fork` 实际上非常简单——它克隆当前进程及其内存，将保存的指令指针保留在原处，然后允许两个进程照常进行。如果没有干预，程序将继续彼此独立运行，并且所有计算都将加倍。
 
-The newly running process is referred to as the "child," with the process originally calling `fork` the "parent." Processes can call `fork` multiple times, thus having multiple children. Each child is numbered with a *process ID* (PID), starting with 1.
+新运行的进程称为“子进程”，最初调用 `fork` 的进程称为“父进程”。进程可以多次调用 `fork`，从而拥有多个子进程。每个子进程都用一个从 1 开始的*进程 ID* (PID) 编号。
 
-Cluelessly doubling the same code is pretty useless, so `fork` returns a different value on the parent vs the child. On the parent, it returns the PID of the new child process, while on the child it returns 0. This makes it possible to do different work on the new process so that forking is actually helpful.
+毫无头绪地复制相同的代码是毫无用处的，因此 `fork` 在父进程和子进程上返回不同的值。在父进程上，它返回新子进程的 PID，而在子进程上，它返回 0。这使得可以在新进程上执行不同的工作，从而使 fork 实际上很有帮助。
 
 <CodeBlock name='main.c'>
 ```c
 pid_t pid = fork();
 
-// Code continues from this point as usual, but now across
-// two "identical" processes.
+// 代码从这一点开始照常继续，但现在跨越
+// 两个“相同”的进程。
 //
-// Identical... except for the PID returned from fork!
+// 相同……除了 fork 返回的 PID！
 //
-// This is the only indicator to either program that they
-// are not one of a kind.
+// 这是两个程序中唯一表明它们
+// 不是独一无二的指标。
 
 if (pid == 0) {
-	// We're in the child.
-	// Do some computation and feed results to the parent!
+	// 我们在子进程中。
+	// 做一些计算并将结果提供给父进程！
 } else {
-	// We're in the parent.
-	// Probably continue whatever we were doing before.
+	// 我们在父进程中。
+	// 可能会继续我们之前做的事情。
 }
 ```
 </CodeBlock>
 
-Process forking can be a bit hard to wrap your head around. From this point on I will assume you've figured it out; if you have not, check out [this hideous-looking website](https://www.csl.mtu.edu/cs4411.ck/www/NOTES/process/fork/create.html) for a pretty good explainer.
+进程 fork 可能有点难以理解。从现在开始，我将假设你已经弄明白了；如果你还没有，请查看 [这个看起来很丑陋的网站](https://www.csl.mtu.edu/cs4411.ck/www/NOTES/process/fork/create.html)，它有一个很好的解释器。
 
-Anyways, Unix programs launch new programs by calling `fork` and then immediately running `execve` in the child process. This is called the *fork-exec pattern*. When you run a program, your computer executes code similar to the following:
+无论如何，Unix 程序通过调用 `fork` 然后立即在子进程中运行 `execve` 来启动新程序。这称为*fork-exec 模式*。当你运行一个程序时，你的计算机执行类似于以下的代码：
 
 <CodeBlock name='launcher.c'>
 ```c
 pid_t pid = fork();
 
 if (pid == 0) {
-	// Immediately replace the child process with the new program.
+	// 立即用新程序替换子进程。
 	execve(...);
 }
 
-// Since we got here, the process didn't get replaced. We're in the parent!
-// Helpfully, we also now have the PID of the new child process in the PID
-// variable, if we ever need to kill it.
+// 由于我们到了这里，所以进程没有被替换。我们在父进程中！
+// 幸运的是，我们现在还在 PID
+// 变量中拥有新子进程的 PID，如果我们需要杀死它的话。
 
-// Parent program continues here...
+// 父程序在这里继续……
 ```
 </CodeBlock>
 
-## Mooooo!
+## 哞！
 
-You might've noticed that duplicating a process's memory only to immediately discard all of it when loading a different program sounds a bit inefficient. Luckily, we have an MMU. Duplicating data in physical memory is the slow part, not duplicating page tables, so we simply *don't* duplicate any RAM: we create a copy of the old process's page table for the new process and keep the mapping pointing to the same underlying physical memory.
+你可能已经注意到，复制一个进程的内存只是为了在加载不同的程序时立即丢弃所有内存听起来有点低效。幸运的是，我们有一个 MMU。复制物理内存中的数据是缓慢的部分，而不是复制页表，所以我们根本*不*复制任何 RAM：我们为新进程创建旧进程页表的副本，并保持映射指向相同的底层物理内存。
 
-But the child process is supposed to be independent and isolated from the parent! It's not okay for the child to write to the parent's memory, or vice versa!
+但是子进程应该独立于父进程并与其隔离！子进程写入父进程的内存是不行的，反之亦然！
 
-Introducing *COW* (copy on write) pages. With COW pages, both processes read from the same physical addresses as long as they don't attempt to write to the memory. As soon as one of them tries to write to memory, that page is copied in RAM. COW pages allow both processes to have memory isolation without an upfront cost of cloning the entire memory space. This is why the fork-exec pattern is efficient; since none of the old process's memory is written to before loading a new binary, no memory copying is necessary.
+介绍*COW*（写时复制）页面。使用 COW 页面，只要两个进程不尝试写入内存，它们就会从相同的物理地址读取。一旦其中一个尝试写入内存，该页面就会在 RAM 中复制。COW 页面允许两个进程进行内存隔离，而无需预先克隆整个内存空间。这就是 fork-exec 模式高效的原因；由于在加载新的二进制文件之前没有写入旧进程的任何内存，因此不需要复制内存。
 
-COW is implemented, like many fun things, with paging hacks and hardware interrupt handling. After `fork` clones the parent, it flags all of the pages of both processes as read-only. When a program writes to memory, the write fails because the memory is read-only. This triggers a segfault (the hardware interrupt kind) which is handled by the kernel. The kernel which duplicates the memory, updates the page to allow writing, and returns from the interrupt to reattempt the write.
+COW 的实现，就像许多有趣的事情一样，是通过分页技巧和硬件中断处理来实现的。在 `fork` 克隆父进程之后，它将两个进程的所有页面都标记为只读。当程序写入内存时，写入失败，因为内存是只读的。这会触发一个由内核处理的段错误（硬件中断类型）。内核复制内存，更新页面以允许写入，并从中断返回以重新尝试写入。
 
-> *A: Knock, knock!  
-> B: Who's there?  
-> A: Interrupting cow.  
-> B: Interrupting cow wh —  
-> A: **MOOOOO!***
+> *A：敲敲！  
+> B：谁在那里？  
+> A：打断牛。  
+> B：打断牛 wh —  
+> A：**哞！***
 
-## In the Beginning (Not Genesis 1:1)
+## 起初（不是创世记 1:1）
 
-Every process on your computer was fork-execed by a parent program, except for one: the *init process*. The init process is set up manually, directly by the kernel. It is the first userland program to run and the last to be killed at shutdown.
+你计算机上的每个进程都是由父程序 fork-exec 的，除了一个：*init 进程*。init 进程是由内核直接手动设置的。它是第一个运行的用户态程序，也是最后一个在关机时被杀死的程序。
 
-Want to see a cool instant blackscreen? If you're on macOS or Linux, save your work, open a terminal, and kill the init process (PID 1):
+想看一个很酷的瞬间黑屏吗？如果你使用的是 macOS 或 Linux，请保存你的工作，打开终端，然后杀死 init 进程（PID 1）：
 
 <CodeBlock name='Shell session'>
 ```
@@ -91,32 +91,32 @@ $ sudo kill 1
 ```
 </CodeBlock>
 
-> *Author's note: knowledge about init processes, unfortunately, only applies to Unix-like systems like macOS and Linux. Most of what you learn from now on will not apply to understanding Windows, which has a very different kernel architecture.*
+> *作者注：不幸的是，关于 init 进程的知识仅适用于类 Unix 系统，如 macOS 和 Linux。你从现在开始学到的大部分内容将不适用于理解 Windows，Windows 具有非常不同的内核架构。*
 > 
-> *Just like the section on `execve`, I am explicitly addressing this — I could write another entire article on the NT kernel, but I am holding myself back from doing so. (For now.)*
+> *就像关于 `execve` 的部分一样，我明确地解决了这个问题——我可以再写一篇关于 NT 内核的完整文章，但我正在阻止自己这样做。（现在。）*
 
-The init process is responsible for spawning all of the programs and services that make up your operating system. Many of those, in turn, spawn their own services and programs.
+init 进程负责生成构成你的操作系统的程序和服务。反过来，其中许多会产生自己的服务和程序。
 
 <img src='/images/init-process-tree.png' loading='eager' style='max-width: 580px; margin: 0 auto;' alt='A tree of processes. The root node is labeled "init." All child nodes are unlabeled but implied to be spawned by the init process.' width='1400' height='752' />
 
-Killing the init process kills all of its children and all of their children, shutting down your OS environment.
+杀死 init 进程会杀死它的所有子进程及其所有子进程，从而关闭你的操作系统环境。
 
-## Back to the Kernel
+## 回到内核
 
-We had a lot of fun looking at Linux kernel code [back in chapter 3](/how-to-run-a-program), so we're gonna do some more of that! This time we'll start with a look at how the kernel starts the init process.
+我们在 [第 3 章](/how-to-run-a-program) 中查看 Linux 内核代码时玩得很开心，所以我们将再做一些！这次我们将从查看内核如何启动 init 进程开始。
 
-Your computer boots up in a sequence like the following:
+你的计算机按以下顺序启动：
 
-1. The motherboard is bundled with a tiny piece of software that searches your connected disks for a program called a *bootloader*. It picks a bootloader, loads its machine code into RAM, and executes it.
-	
-	Keep in mind that we are not yet in the world of a running OS. Until the OS kernel starts an init process, multiprocessing and syscalls don’t really exist. In the pre-init context, "executing" a program means directly jumping to its machine code in RAM without expectation of return.
-2. The bootloader is responsible for finding a kernel, loading it into RAM, and executing it. Some bootloaders, like [GRUB](https://www.gnu.org/software/grub/), are configurable and/or let you select between multiple operating systems. BootX and Windows Boot Manager are the built-in bootloaders of macOS and Windows, respectively.
-3. The kernel is now running and begins a large routine of initialization tasks including setting up interrupt handlers, loading drivers, and creating the initial memory mapping. Finally, the kernel switches the privilege level to user mode and starts the init program.
-4. We're finally in userland in an operating system! The init program begins running init scripts, starting services, and executing programs like the shell/UI.
+1. 主板捆绑了一个微型软件，它会在你连接的磁盘中搜索一个名为*引导加载程序*的程序。它选择一个引导加载程序，将其机器代码加载到 RAM 中，然后执行它。
 
-### Initializing Linux
+   请记住，我们还没有进入运行操作系统的世界。在操作系统内核启动 init 进程之前，多处理和系统调用实际上并不存在。在预初始化上下文中，“执行”程序意味着直接跳转到其在 RAM 中的机器代码，而不会期望返回。
+2. 引导加载程序负责找到内核，将其加载到 RAM 中，然后执行它。一些引导加载程序，如 [GRUB](https://www.gnu.org/software/grub/)，是可配置的和/或让你在多个操作系统之间进行选择。BootX 和 Windows 启动管理器分别是 macOS 和 Windows 的内置引导加载程序。
+3. 内核现在正在运行，并开始大量初始化任务，包括设置中断处理程序、加载驱动程序和创建初始内存映射。最后，内核将权限级别切换到用户模式并启动 init 程序。
+4. 我们终于在一个操作系统中进入用户空间了！init 程序开始运行 init 脚本、启动服务和执行 shell/UI 等程序。
 
-On Linux, the bulk of step 3 (kernel initialization) occurs in the `start_kernel` function in [init/main.c](https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/init/main.c). This function is over 200 lines of calls to various other init functions, so I won't include [the whole thing](https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/init/main.c#L880-L1091) in this article, but I do recommend scanning through it! At the end of `start_kernel` a function named `arch_call_rest_init` is called:
+### 初始化 Linux
+
+在 Linux 上，步骤 3（内核初始化）的大部分工作发生在 [init/main.c](https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/init/main.c) 中的 `start_kernel` 函数中。这个函数有 200 多行调用各种其他初始化函数，所以我不会在本文中包含 [整个内容](https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/init/main.c#L880-L1091)，但我建议你通读它！在 `start_kernel` 的末尾，调用了一个名为 `arch_call_rest_init` 的函数：
 
 <CodeBlock name='start_kernel @ init/main.c' startLine={1087} sourceUrl='https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/init/main.c#L1087-L1088'>
 ```c
@@ -125,15 +125,15 @@ On Linux, the bulk of step 3 (kernel initialization) occurs in the `start_kernel
 ```
 </CodeBlock>
 
-> **What does non-\_\_init'ed mean?**
+> **非 __init'ed 是什么意思？**
 >
-> The `start_kernel` function is defined as `asmlinkage __visible void __init __no_sanitize_address start_kernel(void)`. The weird keywords like `__visible`, `__init`, and `__no_sanitize_address` are all C preprocessor macros used in the Linux kernel to add various code or behaviors to a function.
+> `start_kernel` 函数定义为 `asmlinkage __visible void __init __no_sanitize_address start_kernel(void)`。像 `__visible`、`__init` 和 `__no_sanitize_address` 这样的奇怪关键字都是 Linux 内核中使用的 C 预处理器宏，用于向函数添加各种代码或行为。
 > 
-> In this case, `__init` is a macro that instructs the kernel to free the function and its data from memory as soon as the boot process is completed, simply to save space.
+> 在这种情况下，`__init` 是一个宏，它指示内核在启动过程完成后立即从内存中释放函数及其数据，只是为了节省空间。
 >
-> How does it work? Without getting too deep into the weeds, the Linux kernel is itself packaged as an ELF file. The `__init` macro expands to `__section(".init.text")`, which is a compiler directive to place the code in a section called `.init.text` instead of the usual `.text` section. Other macros allow data and constants to be placed in special init sections as well, such as `__initdata` that expands to `__section(".init.data")`.
+> 它是如何工作的？无需深入探讨，Linux 内核本身被打包为 ELF 文件。`__init` 宏扩展为 `__section(".init.text")`，这是一个编译器指令，用于将代码放置在名为 `.init.text` 的节中，而不是通常的 `.text` 节中。其他宏允许将数据和常量也放置在特殊的初始化节中，例如扩展为 `__section(".init.data")` 的 `__initdata`。
 
-`arch_call_rest_init` is nothing but a wrapper function:
+`arch_call_rest_init` 只是一个包装函数：
 
 <CodeBlock name='init/main.c' startLine={832} sourceUrl='https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/init/main.c#L832-L835'>
 ```c
@@ -144,7 +144,7 @@ void __init __weak arch_call_rest_init(void)
 ```
 </CodeBlock>
 
-The comment said "do the rest non-\_\_init'ed" because `rest_init` is not defined with the `__init` macro. This means it is not freed when cleaning up init memory:
+注释说“做剩下的非 __init'ed”，因为 `rest_init` 没有使用 `__init` 宏定义。这意味着它在清理初始化内存时不会被释放：
 
 <CodeBlock name='init/main.c' startLine={689} sourceUrl='https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/init/main.c#L689-L690'>
 ```c
@@ -153,7 +153,7 @@ noinline void __ref rest_init(void)
 ```
 </CodeBlock>
 
-`rest_init` now creates a thread for the init process:
+`rest_init` 现在为 init 进程创建一个线程：
 
 <CodeBlock name='rest_init @ init/main.c' startLine={695} sourceUrl='https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/init/main.c#L695-L700'>
 ```c
@@ -166,7 +166,7 @@ noinline void __ref rest_init(void)
 ```
 </CodeBlock>
 
-The `kernel_init` parameter passed to `user_mode_thread` is a function that finishes some initialization tasks and then searches for a valid init program to execute it. This procedure starts with some basic setup tasks; I will skip through these for the most part, except for where `free_initmem` is called. This is where the kernel frees our `.init` sections!
+传递给 `user_mode_thread` 的 `kernel_init` 参数是一个函数，它完成一些初始化任务，然后搜索要执行的有效 init 程序。此过程从一些基本的设置任务开始；我将跳过大部分内容，除了调用 `free_initmem` 的地方。这是内核释放我们的 `.init` 节的地方！
 
 <CodeBlock name='kernel_init @ init/main.c' startLine={1471} sourceUrl='https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/init/main.c#L1471'>
 ```c
@@ -174,7 +174,7 @@ The `kernel_init` parameter passed to `user_mode_thread` is a function that fini
 ```
 </CodeBlock>
 
-Now the kernel can find a suitable init program to run:
+现在内核可以找到一个合适的 init 程序来运行：
 
 <CodeBlock name='kernel_init @ init/main.c' startLine={1495} sourceUrl='https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/init/main.c#L1495-L1525'>
 ```c
@@ -212,15 +212,15 @@ Now the kernel can find a suitable init program to run:
 ```
 </CodeBlock>
 
-On Linux, the init program is almost always located at or symbolic-linked to `/sbin/init`. Common inits include [systemd](https://systemd.io/) (which has an abnormally good website), [OpenRC](https://wiki.gentoo.org/wiki/OpenRC/openrc-init), and [runit](http://smarden.org/runit/). `kernel_init` will default to `/bin/sh` if it can't find anything else — and if it can't find `/bin/sh`, something is TERRIBLY wrong.
+在 Linux 上，init 程序几乎总是位于 `/sbin/init` 或符号链接到 `/sbin/init`。常见的初始化程序包括 [systemd](https://systemd.io/)（它有一个异常好的网站）、[OpenRC](https://wiki.gentoo.org/wiki/OpenRC/openrc-init) 和 [runit](http://smarden.org/runit/)。如果 `kernel_init` 找不到其他任何东西，它将默认为 `/bin/sh`——如果它找不到 `/bin/sh`，那就太糟糕了。
 
-*MacOS has an init program, too! It's called launchd and is located at `/sbin/launchd`. Try running that in a terminal to get yelled for not being a kernel.*
+*MacOS 也有一个 init 程序！它被称为 launchd，位于 `/sbin/launchd`。尝试在终端中运行它，你会因为不是内核而被骂。*
 
-From this point on, we're at step 4 in the boot process: the init process is running in userland and begins launching various programs using the fork-exec pattern.
+从这一点开始，我们处于启动过程的第 4 步：init 进程在用户空间中运行，并开始使用 fork-exec 模式启动各种程序。
 
-### Fork Memory Mapping
+### Fork 内存映射
 
-I was curious how the Linux kernel remaps the bottom half of memory when forking processes, so I poked around a bit. [kernel/fork.c](https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/kernel/fork.c) seems to contain most of the code for forking processes. The start of that file helpfully pointed me to the right place to look:
+我很好奇 Linux 内核在 fork 进程时如何重新映射内存的下半部分，所以我四处查看了一下。[kernel/fork.c](https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/kernel/fork.c) 似乎包含了用于 fork 进程的大部分代码。该文件的开头很有帮助地指出了我应该查看的正确位置：
 
 <CodeBlock name='kernel/fork.c' startLine={8} sourceUrl='https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/kernel/fork.c#L8-L13'>
 ```c
@@ -233,9 +233,9 @@ I was curious how the Linux kernel remaps the bottom half of memory when forking
 ```
 </CodeBlock>
 
-It looks like this `copy_page_range` function takes some information about a memory mapping and copies the page tables. Quickly skimming through the functions it calls, this is also where pages are set to be read-only to make them COW pages. It checks whether it should do this by calling a function called `is_cow_mapping`.
+看起来这个 `copy_page_range` 函数获取有关内存映射的一些信息并复制页表。快速浏览它调用的函数，这也是将页面设置为只读以使其成为 COW 页面的地方。它通过调用一个名为 `is_cow_mapping` 的函数来检查是否应该这样做。
 
-`is_cow_mapping` is defined back in [include/linux/mm.h](https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/include/linux/mm.h), and returns true if the memory mapping has [flags](http://books.gigatux.nl/mirror/kerneldevelopment/0672327201/ch14lev1sec2.html) that indicate the memory is writeable and isn't shared between processes. Shared memory doesn't need to be COWed because it is designed to be shared. Admire the slightly incomprehensible bitmasking:
+`is_cow_mapping` 在 [include/linux/mm.h](https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/include/linux/mm.h) 中定义，如果内存映射具有 [标志](http://books.gigatux.nl/mirror/kerneldevelopment/0672327201/ch14lev1sec2.html) 表明内存是可写的并且不在进程之间共享，则返回 true。共享内存不需要 COW，因为它被设计为共享的。欣赏一下稍微难以理解的位掩码：
 
 <CodeBlock name='include/linux/mm.h' startLine={1541} sourceUrl='https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/include/linux/mm.h#L1541-L1544'>
 ```c
@@ -246,28 +246,28 @@ static inline bool is_cow_mapping(vm_flags_t flags)
 ```
 </CodeBlock>
 
-Back in [kernel/fork.c](https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/kernel/fork.c), doing a simple Command-F for `copy_page_range` yields one call from the `dup_mmap` function... which is in turn called by `dup_mm`... which is called by `copy_mm`... which is finally called by the massive `copy_process` function! `copy_process` is the core of the fork function, and, in a way, the centerpoint of how Unix systems execute programs — always copying and editing a template created for the first process at startup.
+回到 [kernel/fork.c](https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/kernel/fork.c)，对 `copy_page_range` 进行简单的 Command-F 搜索会产生来自 `dup_mmap` 函数的一个调用……该函数又被 `dup_mm` 调用……该函数被 `copy_mm` 调用……该函数最终被庞大的 `copy_process` 函数调用！`copy_process` 是 fork 函数的核心，并且在某种程度上是 Unix 系统执行程序的中心点——始终复制和编辑在启动时为第一个进程创建的模板。
 
 <iframe width="560" height="315" src="https://www.youtube.com/embed/FavUpD_IjVY" title="YouTube video player" frameborder="0" style="aspect-ratio: 16 / 9;" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen />
 
-## In Summary...
+## 总结……
 
-***So... how do programs run?***
+***那么……程序是如何运行的？***
 
-On the lowest level: processors are dumb. They have a pointer into memory and execute instructions in a row, unless they reach an instruction that tells them to jump somewhere else.
+在最低级别：处理器是愚蠢的。它们有一个指向内存的指针并连续执行指令，除非它们遇到一条指令告诉它们跳转到其他地方。
 
-Besides jump instructions, hardware and software interrupts can also break the sequence of execution by jumping to a preset location that can then choose where to jump to. Processor cores can't run multiple programs at once, but this can be simulated by using a timer to repeatedly trigger interrupts and allowing kernel code to switch between different code pointers.
+除了跳转指令之外，硬件和软件中断还可以通过跳转到预设位置来中断执行顺序，该预设位置可以选择跳转到哪里。处理器内核不能同时运行多个程序，但这可以通过使用计时器重复触发中断并允许内核代码在不同的代码指针之间切换来模拟。
 
-Programs are *tricked* into believing they're running as a coherent, isolated unit. Direct access to system resources is prevented in user mode, memory space is isolated using paging, and system calls are designed to allow generic I/O access without too much knowledge about the true execution context. System calls are instructions that ask the CPU to run some kernel code, the location of which is configured by the kernel at startup.
+程序被*欺骗*相信它们正在作为一个连贯的、孤立的单元运行。在用户模式下阻止直接访问系统资源，使用分页隔离内存空间，并且系统调用旨在允许通用 I/O 访问，而无需太多了解真实的执行上下文。系统调用是要求 CPU 运行某些内核代码的指令，这些代码的位置由内核在启动时配置。
 
-***But... how do programs run?***
+***但是……程序是如何运行的？***
 
-After the computer starts up, the kernel launches the init process. This is the first program running at the higher level of abstraction where its machine code doesn't have to worry about many specific system details. The init program launches the programs that render your computer's graphical environment and are responsible for launching other software.
+计算机启动后，内核会启动 init 进程。这是在更高抽象级别运行的第一个程序，其机器代码不必担心许多特定的系统细节。init 程序启动渲染你的计算机图形环境的程序，并负责启动其他软件。
 
-To launch a program, it clones itself with the fork syscall. This cloning is efficient because all of the memory pages are COW and the memory doesn't need to be copied within physical RAM. On Linux, this is the `copy_process` function in action.
+要启动程序，它使用 fork 系统调用克隆自身。这种克隆是高效的，因为所有内存页都是 COW，并且不需要在物理 RAM 中复制内存。在 Linux 上，这是 `copy_process` 函数在起作用。
 
-Both processes check if they're the forked process. If they are, they use an exec syscall to ask the kernel to replace the current process with a new program.
+两个进程都检查它们是否是 fork 进程。如果是，它们使用 exec 系统调用要求内核用新程序替换当前进程。
 
-The new program is probably an ELF file, which the kernel parses to find information on how to load the program and where to place its code and data within the new virtual memory mapping. The kernel might also prepare an ELF interpreter if the program is dynamically linked.
+新程序可能是一个 ELF 文件，内核会解析它以查找有关如何加载程序以及将其代码和数据放置在新虚拟内存映射中的位置的信息。如果程序是动态链接的，内核也可能会准备一个 ELF 解释器。
 
-The kernel can then load the program's virtual memory mapping and return to userland with the program running, which really means setting the CPU's instruction pointer to the start of the new program's code in virtual memory.
+然后内核可以加载程序的虚拟内存映射并返回到用户空间，程序正在运行，这实际上意味着将 CPU 的指令指针设置为虚拟内存中新程序代码的开头。

@@ -8,107 +8,107 @@ updatedAt: 2023-08-15T18:49:01.686Z
 
 import CodeBlock from '../../components/CodeBlock.astro'
 
-Up until now, every time I've talked about reading and writing memory was a little wishy-washy. For example, ELF files specify specific memory addresses to load data into, so why aren't there problems with different processes trying to use conflicting memory? Why does each process seem to have a different memory environment?
+到目前为止，每当我谈到读取和写入内存时，总是有点含糊不清。例如，ELF 文件指定了将数据加载到特定的内存地址，那么为什么不同的进程不会因为使用冲突的内存而出现问题呢？为什么每个进程似乎都有不同的内存环境？
 
-Also, how exactly did we get here? We understand that `execve` is a syscall that *replaces* the current process with a new program, but this doesn't explain how multiple processes can be started. It definitely doesn't explain how the very first program runs — what chicken (process) lays (spawns) all the other eggs (other processes)?
+另外，我们是如何达到现在的状态的？我们知道 `execve` 是一个系统调用，它*替换*当前进程为新程序，但这并不能解释如何启动多个进程。它也无法解释第一个程序是如何运行的——哪个“鸡”（进程）下了所有其他“蛋”（其他进程）？
 
-We're nearing the end of our journey. After these two questions are answered, we'll have a mostly complete understanding of how your computer got from bootup to running the software you're using right now.
+我们即将结束我们的旅程。在回答这两个问题之后，我们将对计算机从启动到运行你现在使用的软件的过程有一个大致完整的理解。
 
-## Memory is Fake
+## 内存是假的
 
-So... about memory. It turns out that when the CPU reads from or writes to a memory address, it's not actually referring to that location in *physical* memory (RAM). Rather, it's pointing to a location in *virtual* memory space.
- 
-The CPU talks to a chip called a [*memory management unit*](https://en.wikipedia.org/wiki/Memory_management_unit) (MMU). The MMU works like a translator with a dictionary that translates locations in virtual memory to locations in RAM. When the CPU is given an instruction to read from memory address `0xfffaf54834067fe2`, it asks the MMU to translate that address. The MMU looks it up in the dictionary, discovers that the matching physical address is `0x53a4b64a90179fe2`, and sends the number back to the CPU. The CPU can then read from that address in RAM.
+关于内存。事实证明，当 CPU 从内存地址读取或写入数据时，它实际上并不是指向*物理*内存（RAM）中的那个位置。而是指向*虚拟*内存空间中的一个位置。
+
+CPU 与一个叫做[内存管理单元](https://en.wikipedia.org/wiki/Memory_management_unit)（MMU）的芯片通信。MMU 像一个翻译器，使用一本字典将虚拟内存中的位置翻译成 RAM 中的位置。当 CPU 接收到一个从内存地址 `0xfffaf54834067fe2` 读取的指令时，它会请求 MMU 翻译该地址。MMU 在字典中查找，发现匹配的物理地址是 `0x53a4b64a90179fe2`，然后将该地址返回给 CPU。CPU 然后可以从 RAM 中的该地址读取数据。
 
 <img src='/images/virtual-memory-mmu-example.png' loading='eager' style='max-width: 640px; margin: 0 auto;' alt='A drawing of a smiling CPU and an MMU having a conversation. The MMU is a tall chip, wearing library glasses, and holding a large book labeled "Dictionary: Pointers 0x0000 to 0xffff." The CPU asks the MMU to translate a long memory address. The MMU thinks for a second, and responds with a different pointer.' width='1207' height='454' />
 
-When the computer first boots up, memory accesses go directly to physical RAM. Immediately after startup, the OS creates the translation dictionary and tells the CPU to start using the MMU.
+当计算机第一次启动时，内存访问直接指向物理 RAM。启动后，操作系统立即创建翻译字典并告诉 CPU 开始使用 MMU。
 
-This dictionary is actually called a *page table*, and this system of translating every memory access is called *paging*. Entries in the page table are called *pages* and each one represents how a certain chunk of virtual memory maps to RAM. These chunks are always a fixed size, and each processor architecture has a different page size. x86-64 has a default 4 KiB page size, meaning each page specifies the mapping for a block of memory 4,096 bytes long.
+这个字典实际上叫做*页表*，这个翻译每次内存访问的系统叫做*分页*。页表中的条目叫做*页*，每个页代表虚拟内存中的某个块如何映射到 RAM。这些块总是固定大小的，每种处理器架构都有不同的页大小。x86-64 的默认页大小是 4 KiB，这意味着每个页指定了一个 4,096 字节长的内存块的映射。
 
-In other words, with 4 KiB pages the bottom 12 bits of an address will always be the same before and after MMU translation — 12, because that's the amount of bits needed to index the 4,096-byte page you get post-translation.
+换句话说，使用 4 KiB 页时，地址的最低 12 位在 MMU 翻译前后将始终相同——12 位，因为这是在翻译后索引 4,096 字节页所需的位数。
 
-x86-64 also allows operating systems to enable larger 2 MiB or 4 GiB pages, which can improve address translation speed but increase memory fragmentation and waste. The larger the page size, the smaller the portion of the address that's translated by the MMU.
+x86-64 还允许操作系统启用更大的 2 MiB 或 4 GiB 页，这可以提高地址翻译速度但会增加内存碎片和浪费。页大小越大，MMU 翻译的地址部分就越小。
 
 <img src='/images/4kib-paging-address-breakdown.png' loading='lazy' style='max-width: 400px; margin: 0 auto;' alt='A breakdown of a memory address with 4 KiB paging. The lowest 12 bits index the page, and the rest of the bits are translated by the MMU and become the page&apos;s start address.' width='760' height='310' />
 
-The page table itself just resides in RAM. While it can contain millions of entries, each entry's size is only on the order of a couple bytes, so the page table doesn't take up too much space.
+页表本身就驻留在 RAM 中。虽然它可以包含数百万个条目，但每个条目的大小仅为几个字节，因此页表不会占用太多空间。
 
-To enable paging at boot, the kernel first constructs the page table in RAM. Then, it stores the physical address of the start of the page table in a register called the page table base register (PTBR). Finally, the kernel enables paging to translate all memory accesses with the MMU. On x86-64, the top 20 bits of control register 3 (CR3) function as the PTBR. Bit 31 of CR0, designated PG for Paging, is set to 1 to enable paging.
+为了在启动时启用分页，内核首先在 RAM 中构建页表。然后，它将页表起始地址的物理地址存储在一个叫做页表基址寄存器（PTBR）的寄存器中。最后，内核启用分页以使用 MMU 翻译所有内存访问。在 x86-64 上，控制寄存器 3（CR3）的最高 20 位用作 PTBR。CR0 的第 31 位，指定为 PG（分页），设置为 1 以启用分页。
 
-The magic of the paging system is that the page table can be edited while the computer is running. This is how each process can have its own isolated memory space — when the OS switches context from one process to another, an important task is remapping the virtual memory space to a different area in physical memory. Let's say you have two processes: process A can have its code and data (likely loaded from an ELF file!) at `0x0000000000400000`, and process B can access its code and data from the very same address. Those two processes can even be instances of the same program, because they aren't actually fighting over that address range! The data for process A is somewhere far from process B in physical memory, and is mapped to `0x0000000000400000` by the kernel when switching to the process.
+分页系统的魔力在于页表可以在计算机运行时编辑。这就是每个进程可以拥有其自己的独立内存空间的原因——当操作系统从一个进程切换到另一个进程时，一个重要的任务是将虚拟内存空间重新映射到物理内存的不同区域。假设你有两个进程：进程 A 可以在 `0x0000000000400000` 访问其代码和数据（可能是从 ELF 文件加载的！），而进程 B 可以从相同的地址访问其代码和数据。这两个进程甚至可以是同一个程序的实例，因为它们实际上并没有争夺那个地址范围！进程 A 的数据在物理内存中远离进程 B，并且在切换到进程时由内核映射到 `0x0000000000400000`。
 
 <img src='/images/process-virtual-memory-mapping.png' loading='lazy' alt='A diagram showing two different processes asking a cheesy clip art image of an anthropomorphic desktop computer to translate the same memory address. The anthropomorphic computer responds to each process with a different section from within the continuous strip of physical memory.' width='2101' height='1010' />
 
-> **Aside: cursed ELF fact**
+> **旁注：被诅咒的 ELF 事实**
 >
-> In certain situations, `binfmt_elf` has to map the first page of memory to zeroes. Some programs written for UNIX System V Release 4.0 (SVr4), an OS from 1988 that was the first to support ELF, rely on null pointers being readable. And somehow, some programs still rely on that behavior.
+> 在某些情况下，`binfmt_elf` 必须将内存的第一页映射为零。有些为 UNIX System V Release 4.0（SVr4）编写的程序（这是 1988 年发布的第一个支持 ELF 的操作系统）依赖于可读的空指针。不知何故，有些程序仍然依赖这种行为。
 >
-> It seems like the Linux kernel dev implementing this was [a little disgruntled](https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/fs/binfmt_elf.c#L1322-L1329):
+> 看起来实现这一功能的 Linux 内核开发者[有点不满](https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/fs/binfmt_elf.c#L1322-L1329)：
 >
-> *"Why this, you ask???  Well SVr4 maps page 0 as read-only, and some applications 'depend' upon this behavior. Since we do not have the power to recompile these, we emulate the SVr4 behavior. Sigh."*
+> *“你问为什么？？？嗯，SVr4 将第 0 页映射为只读，并且某些应用程序‘依赖’这种行为。由于我们无权重新编译这些程序，我们模拟了 SVr4 的行为。叹气。”*
 >
-> Sigh.
+> 叹气。
 
-## Security with Paging
+## 分页的安全性
 
-The process isolation enabled by memory paging improves code ergonomics (processes don't need to be aware of other processes to use memory), but it also creates a level of security: processes cannot access memory from other processes. This half answers one of the original questions from the start of this article:
+内存分页实现的进程隔离提高了代码的易用性（进程不需要意识到其他进程的存在来使用内存），但它也创建了一个安全层：进程无法访问其他进程的内存。这部分回答了本文开头的一个问题：
 
-> If programs run directly on the CPU, and the CPU can directly access RAM, why can't code access memory from other processes, or, god forbid, the kernel?
+> 如果程序直接在 CPU 上运行，且 CPU 可以直接访问 RAM，为什么代码不能访问其他进程的内存，或者更糟的是，访问内核？
 
-*Remember that? It feels like so long ago...*
+*还记得吗？感觉已经很久了……*
 
-What about that kernel memory, though? First things first: the kernel obviously needs to store plenty of data of its own to keep track of all the processes running and even the page table itself. Every time a hardware interrupt, software interrupt, or system call is triggered and the CPU enters kernel mode, the kernel code needs to access that memory somehow.
+那么内核内存呢？首先：内核显然需要存储大量自己的数据来跟踪所有正在运行的进程，甚至包括页表本身。每当触发硬件中断、软件中断或系统调用并且 CPU 进入内核模式时，内核代码需要以某种方式访问这些内存。
 
-Linux's solution is to always allocate the top half of the virtual memory space to the kernel, so Linux is called a [*higher half kernel*](https://wiki.osdev.org/Higher_Half_Kernel). Windows employs a [similar](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/overview-of-windows-memory-space) technique, while macOS is... [slightly](https://www.researchgate.net/figure/Overview-of-the-Mac-OS-X-virtual-memory-system-which-resides-inside-the-Mach-portion-of_fig1_264086271) [more](https://developer.apple.com/library/archive/documentation/Performance/Conceptual/ManagingMemory/Articles/AboutMemory.html) [complicated](https://developer.apple.com/library/archive/documentation/Darwin/Conceptual/KernelProgramming/vm/vm.html) and caused my brain to ooze out of my ears reading about it. \~(++)\~
+Linux 的解决方案是始终将虚拟内存空间的上半部分分配给内核，因此 Linux 被称为[高半内核](https://wiki.osdev.org/Higher_Half_Kernel)。Windows 采用了[类似](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/overview-of-windows-memory-space)的技术，而 macOS 则[稍微](https://www.researchgate.net/figure/Overview-of-the-Mac-OS-X-virtual-memory-system-which-resides-inside-the-Mach-portion-of_fig1_264086271) [复杂](https://developer.apple.com/library/archive/documentation/Performance/Conceptual/ManagingMemory/Articles/AboutMemory.html) [一些](https://developer.apple.com/library/archive/documentation/Darwin/Conceptual/KernelProgramming/vm/vm.html)，阅读相关内容时让我脑袋都快炸了。~(++)~
 
 <img src='/images/higher-half-kernel-memory-map.png' loading='lazy' alt='A diagram showing virtual memory space as a strip. The left half is labeled user space: memory for the executing program. The right half is labeled kernel space: fixed area for everything kernel-related. The middle point splitting the two segments is labeled with the memory address 0x8000000000000000.' width='2161' height='230' />
 
-It would be terrible for security if userland processes could read or write kernel memory though, so paging enables a second layer of security: each page must specify permission flags. One flag determines whether the region is writable or only readable. Another flag tells the CPU that only kernel mode is allowed to access the region's memory. This latter flag is used to protect the entire higher half kernel space — the entire kernel memory space is actually available in the virtual memory mapping for user space programs, they just don't have the permissions to access it.
+如果用户态进程可以读取或写入内核内存，那将是非常糟糕的安全问题，因此分页启用了第二层安全性：每个页必须指定权限标志。一个标志决定该区域是可写还是只读。另一个标志告诉 CPU 只有内核模式才能访问该区域的内存。后一个标志用于保护整个高半内核空间——整个内核内存空间实际上在用户空间程序的虚拟内存映射中可用，它们只是没有权限访问它。
 
 <img src='/images/page-table-entry-permissions.png' loading='lazy' style='max-width: 260px;' alt='A table of page table entry permissions. Present: true. Read/write: read only. User/kernel: all modes. Dirty: false. Accessed: true. Etcetera.' width='650' height='639' />
 
-The page table itself is actually contained within the kernel memory space! When the timer chip triggers a hardware interrupt for process switching, the CPU switches the privilege level to kernel mode and jumps to Linux kernel code. Being in kernel mode (Intel ring 0) allows the CPU to access the kernel-protected memory region. The kernel can then write to the page table (residing somewhere in that upper half of memory) to remap the lower half of virtual memory for the new process. When the kernel switches to the new process and the CPU enters user mode, it can no longer access any of the kernel memory.
+页表本身实际上包含在内核内存空间中！当计时器芯片触发进程切换的硬件中断时，CPU 将特权级别切换到内核模式并跳转到 Linux 内核代码。处于内核模式（Intel ring 0）允许 CPU 访问受内核保护的内存区域。然后内核可以写入页表（驻留在内存的上半部分的某个地方）以重新映射新进程的虚拟内存的下半部分。当内核切换到新进程并且 CPU 进入用户模式时，它将无法再访问任何内核内存。
 
-Just about every memory access goes through the MMU. Interrupt descriptor table handler pointers? Those address the kernel's virtual memory space as well.
+几乎每次内存访问都通过 MMU。中断描述符表处理程序指针？那些地址也指向内核的虚拟内存空间。
 
-## Hierarchical Paging and Other Optimizations
+## 分层分页和其他优化
 
-64-bit systems have memory addresses that are 64 bits long, meaning the 64-bit virtual memory space is a whopping 16 [exbibytes](https://en.wiktionary.org/wiki/exbibyte) in size. That is incredibly large, far larger than any computer that exists today or will exist any time soon. As far as I can tell, the most RAM in any computer ever was in the [Blue Waters supercomputer](https://en.wikipedia.org/wiki/Blue_Waters), with over 1.5 petabytes of RAM. That's still less than 0.01% of 16 EiB.
+64 位系统的内存地址是 64 位长的，这意味着 64 位虚拟内存空间的大小是惊人的 16 [艾字节](https://en.wiktionary.org/wiki/exbibyte)。这非常大，远远超过了今天或近期内任何计算机的容量。据我所知，拥有最多 RAM 的计算机是 [Blue Waters 超级计算机](https://en.wikipedia.org/wiki/Blue_Waters)，拥有超过 1.5 PB 的 RAM。这仍然不到 16 EiB 的 0.01%。
 
-If an entry in the page table was required for every 4 KiB section of virtual memory space, you would need 4,503,599,627,370,496 page table entries. With 8-byte-long page table entries, you would need 32 pebibytes of RAM just to store the page table alone. You may notice that's still larger than the world record for the most RAM in a computer.
+如果页表中的每个条目都需要为虚拟内存空间的每个 4 KiB 部分提供一个条目，那么你将需要 4,503,599,627,370,496 个页表条目。每个页表条目长 8 字节，你将需要 32 PB 的 RAM 仅用于存储页表。你可能会注意到，这仍然超过了世界上最多 RAM 的计算机的记录。
 
-> **Aside: why the weird units?**
-> 
-> I know it's uncommon and really ugly, but I find it important to clearly differentiate between binary byte size units (powers of 2) and metric ones (powers of 10). A kilobyte, kB, is an SI unit that means 1,000 bytes. A kibibyte, KiB, is an IEC-recommended unit that means 1,024 bytes. In terms of CPUs and memory addresses, byte counts are usually powers of two because computers are binary systems. Using KB (or worse, kB) to mean 1,024 would be more ambiguous.
+> **旁注：为什么使用这些奇怪的单位？**
+>
+> 我知道这不常见而且真的很丑，但我认为清楚地区分二进制字节大小单位（2 的幂）和公制单位（10 的幂）很重要。千字节，kB，是一个 SI 单位，表示 1,000 字节。千比字节，KiB，是一个 IEC 推荐的单位，表示 1,024 字节。在 CPU 和内存地址方面，字节计数通常是二的幂，因为计算机是二进制系统。使用 KB（或更糟的 kB）表示 1,024 会更加模糊。
 
-Since it would be impossible (or at least incredibly impractical) to have sequential page table entries for the entire possible virtual memory space, CPU architectures implement *hierarchical paging*. In hierarchical paging systems, there are multiple levels of page tables of increasingly small granularity. The top level entries cover large blocks of memory and point to page tables of smaller blocks, creating a tree structure. The individual entries for blocks of 4 KiB or whatever the page size is are the leaves of the tree.
+由于不可能（或至少非常不切实际）为整个可能的虚拟内存空间拥有连续的页表条目，CPU 架构实现了*分层分页*。在分层分页系统中，存在多个级别的页表，粒度越来越小。顶级条目覆盖大块内存，并指向较小块内存的页表，创建一个树结构。4 KiB 或其他页大小的单个条目是树的叶子。
 
-x86-64 historically uses 4-level hierarchical paging. In this system, each page table entry is found by offsetting the start of the containing table by a portion of the address. This portion starts with the most significant bits, which work as a prefix so the entry covers all addresses starting with those bits. The entry points to the start of the next level of table containing the subtrees for that block of memory, which are again indexed with the next collection of bits.
+x86-64 历史上使用 4 级分层分页。在这个系统中，每个页表条目通过从包含表的起始位置偏移地址的一部分来找到。这部分从最高有效位开始，作为前缀，因此条目覆盖以这些位开头的所有地址。该条目指向下一级表的起始位置，包含该内存块的子树，它们再次由下一组位索引。
 
-The designers of x86-64's 4-level paging also chose to ignore the top 16 bits of all virtual pointers to save page table space. 48 bits gets you a 128 TiB virtual address space, which was deemed to be large enough. (The full 64 bits would get you 16 EiB, which is kind of a lot.)
+x86-64 的 4 级分页设计者还选择忽略所有虚拟指针的最高 16 位以节省页表空间。48 位为你提供了 128 TiB 的虚拟地址空间，被认为足够大。（完整的 64 位将为你提供 16 EiB，这实在是太多了。）
 
-Since the first 16 bits are skipped, the "most significant bits" for indexing the first level of the page table actually start at bit 47 rather than 63. This also means the higher half kernel diagram from earlier in this chapter was technically inaccurate; the kernel space start address should've been depicted as the midpoint of an address space smaller than 64 bits.
+由于前 16 位被跳过，索引第一级页表的“最高有效位”实际上从第 47 位而不是第 63 位开始。这也意味着本章前面提到的高半内核图实际上是不准确的；内核空间起始地址应该被描绘为小于 64 位地址空间的中点。
 
 <img src='/images/multilevel-paging-explainer.png' loading='lazy' class='big' alt='A large, detailed, and full-color diagram of 4-level paging on x86-64. It depicts the four levels of page tables, highlighting the bits that serve as a "prefix" at each level. It also shows the tables being indexed by those prefix bits by adding the value of the bits to the table&apos;s base address. The entries in each table point to the start of the next table, except for the final level 1 which points to the start of a 4 KiB block in RAM. The MMU adds the lowest 12 bits to that address to get the final physical address. There is one level 4 table, n-squared level 3 tables, and so on.' width='2981' height='1118' />
 
-Hierarchical paging solves the space problem because at any level of the tree, the pointer to the next entry can be null (`0x0`). This allows entire subtrees of the page table to be elided, meaning unmapped areas of the virtual memory space don't take up any space in RAM. Lookups at unmapped memory addresses can fail quickly because the CPU can error as soon as it sees an empty entry higher up in the tree. Page table entries also have a presence flag that can be used to mark them as unusable even if the address appears valid.
+分层分页解决了空间问题，因为在树的任何级别，指向下一个条目的指针都可以为空（`0x0`）。这允许页表的整个子树被省略，这意味着未映射的虚拟内存空间不会占用 RAM 中的任何空间。由于 CPU 可以在看到树上层的空条目时立即出错，因此未映射内存地址的查找可以快速失败。页表条目还有一个存在标志，可以用来标记它们为不可用，即使地址看起来有效。
 
-Another benefit of hierarchical paging is the ability to efficiently switch out large sections of the virtual memory space. A large swath of virtual memory might be mapped to one area of physical memory for one process, and a different area for another process. The kernel can store both mappings in memory and simply update the pointers at the top level of the tree when switching processes. If the entire memory space mapping was stored as a flat array of entries, the kernel would have to update a lot of entries, which would be slow and still require independently keeping track of the memory mappings for each process.
+分层分页的另一个好处是能够有效地切换虚拟内存空间的大部分。虚拟内存的大块可能被映射到一个进程的物理内存区域，而另一个进程则映射到不同的区域。内核可以将这两种映射存储在内存中，并在切换进程时简单地更新树顶级的指针。如果整个内存空间映射被存储为一个平面条目数组，内核将不得不更新大量条目，这将很慢，并且仍然需要独立跟踪每个进程的内存映射。
 
-I said x86-64 "historically" uses 4-level paging because recent processors implement [5-level paging](https://en.wikipedia.org/wiki/Intel_5-level_paging). 5-level paging adds another level of indirection as well as 9 more addressing bits to expand the address space to 128 PiB with 57-bit addresses. 5-level paging is supported by operating systems including Linux [since 2017](https://lwn.net/Articles/717293/) as well as recent Windows 10 and 11 server versions.
+我说 x86-64“历史上”使用 4 级分页，因为最近的处理器实现了[5 级分页](https://en.wikipedia.org/wiki/Intel_5-level_paging)。5 级分页增加了另一个间接级别以及 9 个更多的寻址位，将地址空间扩展到 128 PiB，地址为 57 位。自 2017 年以来，5 级分页得到了包括 Linux 在内的操作系统的支持[（参考资料）](https://lwn.net/Articles/717293/)，以及最近的 Windows 10 和 11 服务器版本。
 
-> **Aside: physical address space limits**
-> 
-> Just as operating systems don't use all 64 bits for virtual addresses, processors don't use entire 64-bit physical addresses. When 4-level paging was the standard, x86-64 CPUs didn't use more than 46 bits, meaning the physical address space was limited to only 64 TiB. With 5-level paging, support has been extended to 52 bits, supporting a 4 PiB physical address space.
+> **旁注：物理地址空间限制**
 >
-> On the OS level, it's advantageous for the virtual address space to be larger than the physical address space. As Linus Torvalds [said](https://www.realworldtech.com/forum/?threadid=76912&curpostid=76973), "[i]t needs to be bigger, by a factor of _at least_ two, and that's quite frankly pushing it, and you're much better off having a factor of ten or more. Anybody who doesn't get that is a moron. End of discussion."
+> 正如操作系统不使用所有 64 位虚拟地址一样，处理器也不使用整个 64 位物理地址。在 4 级分页是标准时，x86-64 CPU 不使用超过 46 位，这意味着物理地址空间限制为仅 64 TiB。使用 5 级分页，支持已扩展到 52 位，支持 4 PiB 的物理地址空间。
+>
+> 在操作系统级别，虚拟地址空间大于物理地址空间是有利的。正如 Linus Torvalds [所说](https://www.realworldtech.com/forum/?threadid=76912&curpostid=76973)，“[它需要至少大两倍，这实际上是推测的，你最好有十倍或更多的因子。任何不明白这一点的人都是白痴。讨论结束。”]
 
-## Swapping and Demand Paging
+## 交换和按需分页
 
-A memory access might fail for a couple reasons: the address might be out of range, it might not be mapped by the page table, or it might have an entry that's marked as not present. In any of these cases, the MMU will trigger a hardware interrupt called a *page fault* to let the kernel handle the problem.
+内存访问可能由于几个原因失败：地址可能超出范围，可能未被页表映射，或者可能有一个标记为不存在的条目。在任何这些情况下，MMU 将触发一个称为*页错误*的硬件中断，以让内核处理问题。
 
-In some cases, the read was truly invalid or prohibited. In these cases, the kernel will probably terminate the program with a [segmentation fault](https://en.wikipedia.org/wiki/Segmentation_fault) error.
+在某些情况下，读取确实是无效的或被禁止的。在这些情况下，内核可能会终止程序并显示[段错误](https://en.wikipedia.org/wiki/Segmentation_fault)错误。
 
 <CodeBlock name='Shell session'>
 ```
@@ -118,20 +118,16 @@ $
 ```
 </CodeBlock>
 
-> **Aside: segfault ontology**
-> 
-> "Segmentation fault" means different things in different contexts. The MMU triggers a hardware interrupt called a "segmentation fault" when memory is read without permission, but "segmentation fault" is also the name of a signal the OS can send to running programs to terminate them due to any illegal memory access.
+> **旁注：段错误本体论**
+>
+> “段错误”在不同上下文中意味着不同的事情。当内存未经许可读取时，MMU 会触发一个称为“段错误”的硬件中断，但“段错误”也是操作系统可以发送给正在运行的程序以因任何非法内存访问而终止它们的信号的名称。
 
-In other cases, memory accesses can *intentionally* fail, allowing the OS to populate the memory and then *hand control back to the CPU to try again*. For example, the OS can map a file on disk to virtual memory without actually loading it into RAM, and then load it into physical memory when the address is requested and a page fault occurs. This is called *demand paging*.
+在其他情况下，这允许像 [mmap](https://man7.org/linux/man-pages/man2/mmap.2.html) 这样懒惰地将整个文件从磁盘映射到虚拟内存的系统调用存在。如果你熟悉 LLaMa.cpp，一个泄露的 Facebook 语言模型的运行时，Justine Tunney 最近通过[使所有加载逻辑使用 mmap](https://justine.lol/mmap/)显著优化了它。（如果你以前没听说过她，[看看她的作品](https://justine.lol/)! Cosmopolitan Libc 和 APE 非常酷，如果你喜欢这篇文章，可能会觉得有趣。）
 
-<img src='/images/demand-paging-with-page-faults-comic.png' loading='lazy' class='big' alt='A three-panel comic style diagram about how demand paging is implemented with hardware interrupts. Panel 1: the CPU having a conversation with the MMU. The CPU says "read 0xfff," the MMU looks confused, and then the MMU sends a lightning to the CPU labeled "page fault!" Panel 2 is labeled "page fault handler" and has a zig-zag outline. It depicts the CPU loading some data into RAM, and then returning from the interrupt. Finally, panel 3 is back to the CPU and MMU conversing. The MMU thinks to itself, "Oh hey, the page is present now." It replies to the CPU&apos;s original request: "Here&apos;s your memory!" The CPU says thank you.' width='3001' height='703' style='--max-width: 1000px;' />
+> *显然关于 Justine 参与此更改有很多[戏剧](https://rentry.org/Jarted) [和](https://news.ycombinator.com/item?id=35413289) [争议](https://news.ycombinator.com/item?id=35458004)。我指出这一点是为了避免被随机的互联网用户责骂。我必须承认，我没有阅读大部分争议内容，但我所说的关于 Justine 的作品很酷的所有内容仍然非常正确。*
 
-For one, this allows syscalls like [mmap](https://man7.org/linux/man-pages/man2/mmap.2.html) that lazily map entire files from disk to virtual memory to exist. If you're familiar with LLaMa.cpp, a runtime for a leaked Facebook language model, Justine Tunney recently significantly optimized it by [making all the loading logic use mmap](https://justine.lol/mmap/). (If you haven't heard of her before, [check her stuff out](https://justine.lol/)! Cosmopolitan Libc and APE are really cool and might be interesting if you've been enjoying this article.)
+当你执行一个程序及其库时，内核实际上并没有将任何东西加载到内存中。它只创建文件的 mmap——当 CPU 尝试执行代码时，页面立即出错，内核用实际的内存块替换页面。
 
-> *Apparently there's a [lot](https://rentry.org/Jarted) [of](https://news.ycombinator.com/item?id=35413289) [drama](https://news.ycombinator.com/item?id=35458004) about Justine's involvement in this change. Just pointing this out so I don't get screamed at by random internet users. I must confess that I haven't read most of the drama, and everything I said about Justine's stuff being cool is still very true.*
+按需分页还使你可能听说过的“交换”或“分页”技术成为可能。操作系统可以通过将内存页写入磁盘来释放物理内存，然后从物理内存中删除它们，但在虚拟内存中保持它们，存在标志设置为 0。如果读取该虚拟内存，操作系统可以将内存从磁盘恢复到 RAM，并将存在标志设置回 1。操作系统可能需要交换另一个 RAM 部分以为从磁盘加载的内存腾出空间。磁盘读写很慢，因此操作系统尝试通过[高效的页面替换算法](https://en.wikipedia.org/wiki/Page_replacement_algorithm)尽量减少交换的发生。
 
-When you execute a program and its libraries, the kernel doesn't actually load anything into memory. It only creates an mmap of the file — when the CPU tries to execute the code, the page immediately faults and the kernel replaces the page with a real block of memory.
-
-Demand paging also enables the technique that you've probably seen under the name "swapping" or "paging." Operating systems can free up physical memory by writing memory pages to disk and then removing them from physical memory but keeping them in virtual memory with the present flag set to 0. If that virtual memory is read, the OS can then restore the memory from disk to RAM and set the present flag back to 1. The OS may have to swap a different section of RAM to make space for the memory being loaded from disk. Disk reads and writes are slow, so operating systems try to make swapping happen as little as possible with [efficient page replacement algorithms](https://en.wikipedia.org/wiki/Page_replacement_algorithm).
-
-An interesting hack is to use page table physical memory pointers to store the locations of files within physical storage. Since the MMU will page fault as soon as it sees a negative present flag, it doesn't matter that they are invalid memory addresses. This isn't practical in all cases, but it's amusing to think about.
+一个有趣的技巧是使用页表物理内存指针来存储物理存储中的文件位置。由于 MMU 一看到负存在标志就会发生页错误，因此它们是无效的内存地址也无关紧要。这并不适用于所有情况，但想想还是很有趣的。

@@ -6,61 +6,61 @@ slug: slice-dat-time
 updatedAt: 2023-08-02T18:14:02.296Z
 ---
 
-Let's say you're building an operating system and you want users to be able to run multiple programs at once. You don’t have a fancy multi-core processor though, so your CPU can only run one instruction at a time!
+假设你正在构建一个操作系统，并希望用户能够同时运行多个程序。但你没有一个高级的多核处理器，所以你的 CPU 一次只能运行一条指令！
 
-Luckily, you’re a very smart OS developer. You figure out that you can fake parallelism by letting processes take turns on the CPU. If you cycle through the processes and run a couple instructions from each one, they can all be responsive without any single process hogging the CPU.
+幸运的是，你是一个非常聪明的操作系统开发者。你发现可以通过让进程轮流使用 CPU 来伪造并行性。如果你在各个进程之间循环，每个进程运行几条指令，它们都可以响应，而不会有任何一个进程占用 CPU。
 
-But how do you take control back from program code to switch processes? After a bit of research, you discover that most computers come with timer chips. You can program a timer chip to trigger a switch to an OS interrupt handler after a certain amount of time passes.
+但是，如何从程序代码中夺回控制权以切换进程呢？经过一番研究，你发现大多数计算机都配备了定时器芯片。你可以编程一个定时器芯片，在经过一段时间后触发一个操作系统中断处理程序。
 
-## Hardware Interrupts
+## 硬件中断
 
-Earlier, we talked about how software interrupts are used to hand control from a userland program to the OS. These are called “software” interrupts because they’re voluntarily triggered by a program — machine code executed by the processor in the normal fetch-execute cycle tells it to switch control to the kernel.
+之前，我们讨论了软件中断是如何用于将控制权从用户态程序交给操作系统的。这些被称为“软件”中断，因为它们是由程序自愿触发的——处理器在正常的取指-执行周期中执行的机器代码告诉它切换控制权到内核。
 
 <img src='/images/keyboard-hardware-interrupt.png' loading='eager' style='max-width: 500px; margin: 0 auto;' alt='A drawing illustrating how hardware interrupts break normal execution. On top: a drawing of a keyboard with a highlighted key, with a lightning bolt drawn to a CPU on the right. On the bottom: some binary labeled "program code," a similar lightning bolt, and some more binary labeled "kernel code." The lightning bolt is labeled "interrupt triggers context switch."' width='935' height='503' />
 
-OS schedulers use *timer chips* like [PITs](https://en.wikipedia.org/wiki/Programmable_interval_timer) to trigger hardware interrupts for multitasking:
+操作系统调度程序使用像 [PITs](https://en.wikipedia.org/wiki/Programmable_interval_timer) 这样的*定时器芯片*来触发用于多任务处理的硬件中断：
 
-1. Before jumping to program code, the OS sets the timer chip to trigger an interrupt after some period of time.
-2. The OS switches to user mode and jumps to the next instruction of the program.
-3. When the timer elapses, it triggers a hardware interrupt to switch to kernel mode and jump to OS code.
-4. The OS can now save where the program left off, load a different program, and repeat the process.
+1. 在跳转到程序代码之前，操作系统设置定时器芯片在一段时间后触发中断。
+2. 操作系统切换到用户模式并跳转到程序的下一条指令。
+3. 当定时器到期时，它触发一个硬件中断，切换到内核模式并跳转到操作系统代码。
+4. 操作系统现在可以保存程序的执行位置，加载另一个程序，并重复这个过程。
 
-This is called *preemptive multitasking*; the interruption of a process is called [*preemption*](https://en.wikipedia.org/wiki/Preemption_(computing)). If you’re, say, reading this article on a browser and listening to music on the same machine, your very own computer is probably following this exact cycle thousands of times a second.
+这被称为*抢占式多任务处理*；中断进程的过程称为[*抢占*](https://en.wikipedia.org/wiki/Preemption_(computing))。如果你正在浏览器上阅读这篇文章并同时在同一台机器上听音乐，你的计算机很可能每秒钟数千次地遵循这个循环。
 
-## Timeslice Calculation
+## 时间片计算
 
-A *timeslice* is the duration an OS scheduler allows a process to run before preempting it. The simplest way to pick timeslices is to give every process the same timeslice, perhaps in the 10&nbsp;ms range, and cycle through tasks in order. This is called *fixed timeslice round-robin* scheduling.
+*时间片*是操作系统调度程序允许进程运行的时间长度，然后抢占它。选择时间片的最简单方法是给每个进程相同的时间片，可能在 10 毫秒范围内，并按顺序循环任务。这被称为*固定时间片轮转*调度。
 
-> **Aside: fun jargon facts!**
+> **旁注：有趣的术语事实！**
 > 
-> Did you know that timeslices are often called "quantums?" Now you do, and you can impress all your tech friends. I think I deserve heaps of praise for not saying quantum in every other sentence in this article.
+> 你知道时间片通常被称为“量子”吗？现在你知道了，你可以用这个术语来让你的技术朋友们印象深刻。我觉得我应该因为没有在这篇文章的每隔一句话中都提到量子而受到赞扬。
 > 
-> Speaking of timeslice jargon, Linux kernel devs use the [jiffy](https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/include/linux/jiffies.h) time unit to count fixed frequency timer ticks. Among other things, jiffies are used for measuring the lengths of timeslices. Linux's jiffy frequency is typically 1000 Hz but can be configured when compiling the kernel.
+> 说到时间片术语，Linux 内核开发者使用 [jiffy](https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/include/linux/jiffies.h) 时间单位来计算固定频率的定时器滴答声。jiffies 用于测量时间片的长度。Linux 的 jiffy 频率通常是 1000 Hz，但可以在编译内核时配置。
 
-A slight improvement to fixed timeslice scheduling is to pick a *target latency* — the ideal longest time for a process to respond. The target latency is the time it takes for a process to resume execution after being preempted, assuming a reasonable number of processes. *This is pretty hard to visualize! Don't worry, a diagram is coming soon.*
+对固定时间片调度的一个小改进是选择一个*目标延迟*——进程响应的理想最长时间。目标延迟是进程在被抢占后恢复执行所需的时间，假设有合理数量的进程。*这很难可视化！别担心，马上就有一个图表。*
 
-Timeslices are calculated by dividing the target latency by the total number of tasks; this is better than fixed timeslice scheduling because it eliminates wasteful task switching with fewer processes. With a target latency of 15&nbsp;ms and 10 processes, each process would get 15/10 or 1.5&nbsp;ms to run. With only 3 processes, each process gets a longer 5&nbsp;ms timeslice while still hitting the target latency.
+时间片的计算方法是将目标延迟除以任务总数；这比固定时间片调度更好，因为它消除了进程较少时的浪费任务切换。假设目标延迟为 15 毫秒，有 10 个进程，每个进程将获得 15/10 或 1.5 毫秒的运行时间。只有 3 个进程时，每个进程将获得更长的 5 毫秒时间片，同时仍能达到目标延迟。
 
-Process switching is computationally expensive because it requires saving the entire state of the current program and restoring a different one. Past a certain point, too small a timeslice can result in performance problems with processes switching too rapidly. It's common to give the timeslice duration a lower bound (*minimum granularity*). This does mean that the target latency is exceeded when there are enough processes for the minimum granularity to take effect.
+进程切换是计算上昂贵的，因为它需要保存当前程序的整个状态并恢复另一个程序。超过某个点，时间片太小会导致进程切换过于频繁，导致性能问题。通常会给时间片长度设定下限（*最小粒度*）。这确实意味着当进程数量足够多以至于最小粒度生效时，目标延迟会被超过。
 
-At the time of writing this article, Linux's scheduler uses a target latency of 6&nbsp;ms and a minimum granularity of 0.75&nbsp;ms.
+在撰写本文时，Linux 的调度程序使用 6 毫秒的目标延迟和 0.75 毫秒的最小粒度。
 
 <img src='/images/linux-scheduler-target-latency.png' loading='lazy' style='max-width: 500px; margin: 0 auto;' alt='A diagram titled "Naive Dynamic Timeslice Round-Robin Scheduling." It depicts a time series of 3 different processes getting time to execute in a repeated cycle. In between the execution blocks of each process is a much shorter block labeled "kernel scheduler." The length of each program execution block is labeled "timeslice (2ms)." The distance from the start of process 1 executing to the next start of process 1 executing, encompassing the execution time of processes 2 and 3, is labeled as "target latency (6ms)."' width='935' height='433' />
 
-Round-robin scheduling with this basic timeslice calculation is close to what most computers do nowadays. It's still a bit naive; most operating systems tend to have more complex schedulers which take process priorities and deadlines into account. Since 2007, Linux has used a scheduler called [Completely Fair Scheduler](https://docs.kernel.org/scheduler/sched-design-CFS.html). CFS does a bunch of very fancy computer science things to prioritize tasks and divvy up CPU time.
+这种基本时间片计算的轮转调度接近于大多数现代计算机的工作方式。它仍然有点天真；大多数操作系统倾向于使用更复杂的调度程序，考虑进程优先级和截止日期。自 2007 年以来，Linux 使用了一个名为[完全公平调度器](https://docs.kernel.org/scheduler/sched-design-CFS.html)的调度器。CFS 做了很多非常复杂的计算机科学工作来优先处理任务并分配 CPU 时间。
 
-Every time the OS preempts a process it needs to load the new program's saved execution context, including its memory environment. This is accomplished by telling the CPU to use a different *page table*, the mapping from "virtual" to physical addresses. This is also the system that prevents programs from accessing each other's memory; we'll go down this rabbit hole in chapters [5](/the-translator-in-your-computer) and [6](/lets-talk-about-forks-and-cows) of this article.
+每次操作系统抢占一个进程时，它需要加载新程序的保存的执行上下文，包括其内存环境。这是通过告诉 CPU 使用不同的*页表*（从“虚拟”到物理地址的映射）来实现的。这也是防止程序访问彼此内存的系统；我们将在本文的第[5](/the-translator-in-your-computer)和第[6](/lets-talk-about-forks-and-cows)章深入探讨这个问题。
 
-## Note #1: Kernel Preemptability
+## 注释 #1：内核可抢占性
 
-So far, we've been only talking about the preemption and scheduling of userland processes. Kernel code might make programs feel laggy if it took too long handling a syscall or executing driver code.
+到目前为止，我们只讨论了用户态进程的抢占和调度。如果内核代码处理系统调用或执行驱动程序代码花费太长时间，可能会使程序感觉滞后。
 
-Modern kernels, including Linux, are [preemptive kernels](https://en.wikipedia.org/wiki/Kernel_preemption). This means they're programmed in a way that allows kernel code itself to be interrupted and scheduled just like userland processes.
+现代内核，包括 Linux，是[可抢占内核](https://en.wikipedia.org/wiki/Kernel_preemption)。这意味着它们被编程为允许内核代码本身像用户态进程一样被中断和调度。
 
-This isn't very important to know about unless you're writing a kernel or something, but basically every article I've read has mentioned it so I thought I would too! Extra knowledge is rarely a bad thing.
+除非你在编写内核代码，否则这并不是非常重要的信息，但几乎每篇我读过的文章都提到了这一点，所以我也提一下！额外的知识很少是坏事。
 
-## Note #2: A History Lesson
+## 注释 #2：一个历史教训
 
-Ancient operating systems, including classic Mac OS and versions of Windows long before NT, used a predecessor to preemptive multitasking. Rather than the OS deciding when to preempt programs, the programs themselves would choose to yield to the OS. They would trigger a software interrupt to say, "hey, you can let another program run now." These explicit yields were the only way for the OS to regain control and switch to the next scheduled process.
+古老的操作系统，包括经典的 Mac OS 和 NT 之前的 Windows 版本，使用了一种抢占式多任务处理的前身。不是操作系统决定何时抢占程序，而是程序本身选择让出控制权给操作系统。它们会触发一个软件中断，表示“嘿，你可以让另一个程序运行了。”这些显式让步是操作系统重新获得控制权并切换到下一个计划进程的唯一方式。
 
-This is called [*cooperative multitasking*](https://en.wikipedia.org/wiki/Cooperative_multitasking). It has a couple major flaws: malicious or just poorly designed programs can easily freeze the entire operating system, and it's nigh impossible to ensure temporal consistency for realtime/time-sensitive tasks. For these reasons, the tech world switched to preemptive multitasking a long time ago and never looked back.
+这被称为[*协作式多任务处理*](https://en.wikipedia.org/wiki/Cooperative_multitasking)。它有几个主要缺陷：恶意或设计不良的程序可以轻易冻结整个操作系统，并且几乎不可能确保实时/时间敏感任务的时间一致性。由于这些原因，技术界很久以前就转向了抢占式多任务处理，并且从未回头。
